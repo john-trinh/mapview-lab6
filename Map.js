@@ -4,6 +4,7 @@ import { ImagePicker, Location, Permissions } from 'expo';
 import MapView, { Callout } from 'react-native-maps';
 import Lightbox from 'react-native-lightbox';
 import geolib from 'geolib';
+import _ from 'lodash';
 
 export default class Map extends Component {
   constructor(props) {
@@ -14,32 +15,30 @@ export default class Map extends Component {
       markers: [],
       lightboxOpen:false,
       isDrawing: false,
-      panDrag: []
+      panDrag: [],
+      polygon: [],
     };
     this.getCurrentLocation = this.getCurrentLocation.bind(this);
     this.toggleDrawOnMap = this.toggleDrawOnMap.bind(this);
     this.filterMarker = this.filterMarker.bind(this);
+
+    this.drawPolygon = _.throttle(this.drawPolygon, 150);
   }
   componentWillMount() {
     setTimeout(() => {
-      this.setState({statusBarHeight: StatusBar.currentHeight})}, 500);
+      this.setState({statusBarHeight: StatusBar.currentHeight});
+    }, 500);
   }
   componentDidMount() {
     this.getCurrentLocation();
   }
 
   async longPress(event) {
-    const { Permissions } = Expo;
-    await Expo.Permissions.askAsync(Permissions.CAMERA_ROLL);
-    let result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: false
-    });
 
     const {coordinate, position } = event;
     let newMarker = {
       coordinate,
-      position,
-      image: result.uri
+      position
     };
     let markers = [...this.state.markers, newMarker];
 
@@ -47,6 +46,7 @@ export default class Map extends Component {
       markers: markers
     });
   }
+
   getCurrentLocation() {
     navigator.geolocation.getCurrentPosition(({coords}) => {
       const myLocation = {
@@ -62,16 +62,24 @@ export default class Map extends Component {
       });
     });
   }
+
   toggleDrawOnMap() {
-    this.setState({isDrawing: !this.state.isDrawing});
+    this.setState({
+      isDrawing: !this.state.isDrawing,
+      panDrag: [],
+      polygon: []
+    });
   }
 
-  panDragMap(coordinate) {
+  drawPolygon(coordinate) {
+    let newArray = [...this.state.panDrag, {...coordinate}];
+    this.setState({
+      panDrag: newArray
+    });
+  }
+  panDragMap(e) {
     if (this.state.isDrawing) {
-      let newArray = [...this.state.panDrag, {...coordinate}];
-      this.setState({
-        panDrag: newArray
-      });
+      this.drawPolygon(e.nativeEvent.coordinate);
     }
   }
 
@@ -81,7 +89,12 @@ export default class Map extends Component {
         return marker;
       }
     });
-    console.log(getMarker);
+    let list = this.state.panDrag.concat(this.state.panDrag[0]);
+    this.setState({markers: getMarker,
+      polygon: list,
+      panDrag: [],
+      isDrawing: !this.state.isDrawing
+    });
   }
 
   render() {
@@ -94,26 +107,23 @@ export default class Map extends Component {
           showsMyLocationButton={true}
           scrollEnabled={!this.state.isDrawing}
           onLongPress={e => this.longPress(e.nativeEvent)}
-          onPanDrag={e => this.panDragMap(e.nativeEvent.coordinate)}
+          onPanDrag={e => this.panDragMap(e)}
         >
           {this.state.markers.map((marker, key) => (
             <MapView.Marker key={key} coordinate={marker.coordinate}>
-              <Callout>
-                {marker.image &&
-                  <Lightbox>
-                    <Image
-                      style={{resizeMode: 'center', width: 100, height: 200}}
-                      source={{ uri: marker.image }}/>
-                  </Lightbox>
-                }
-              </Callout>
             </MapView.Marker>
           ))}
-          {this.state.panDrag.length > 0 && <MapView.Polygon
+          {this.state.panDrag.length > 0 && <MapView.Polyline
             coordinates={this.state.panDrag}
             fillColor='red'
-            strokeWidth={3}
+            strokeWidth={2}
             miterLimit={30}
+          />}
+          {this.state.polygon.length > 0 && <MapView.Polygon
+            fillColor='red'
+            coordinates={this.state.polygon}
+            strokeWidth={2}
+            style={{opacity: 0.6}}
           />}
         </MapView>
         <Button
